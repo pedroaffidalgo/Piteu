@@ -14,6 +14,8 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://generativelanguage.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://world.openfoodfacts.org" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;700&display=swap">
 <style>
 /* App de uma coluna, tabs fixas em baixo; números em Unbounded, texto em Manrope */
@@ -92,6 +94,17 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid v
 .seg{display:flex;background:var(--soft);border-radius:12px;padding:3px;gap:3px}
 .seg button{flex:1;border:0;background:transparent;color:var(--ink);font:inherit;font-weight:700;padding:8px;border-radius:9px;cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--card);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.scanner{position:relative;border-radius:18px;overflow:hidden;background:var(--bg);border:2px dashed var(--line);min-height:190px}
+.scanner.live{border-style:solid;border-color:var(--accent)}
+#reader{width:100%}
+#reader video{width:100%!important;height:auto!important;display:block;border-radius:16px}
+.scanIdle{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:20px 16px;min-height:190px;color:var(--ink)}
+.scanIdle svg{color:var(--accent)}
+.rec{display:flex;flex-wrap:wrap;gap:6px}
+.rec button{font:inherit;font-size:12.5px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:6px 11px;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prod{display:flex;gap:12px;align-items:center}
+.prod img{width:56px;height:56px;object-fit:contain;border-radius:10px;background:#fff;flex:none}
+.ns{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;font-weight:800;font-size:12px;color:#fff;margin-left:4px;vertical-align:middle}
 /* scan */
 .drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:190px;border:2px dashed var(--line);border-radius:18px;background:var(--bg);cursor:pointer;text-align:center;padding:16px;overflow:hidden;position:relative}
 .drop img{max-height:260px;border-radius:12px;object-fit:cover}
@@ -177,15 +190,29 @@ nav.tabs .scanbtn span.o{width:56px;height:56px;border-radius:50%;background:var
     <div class="card" style="display:flex;flex-direction:column;gap:12px">
       <div class="seg" role="group" aria-label="Modo">
         <button id="modeFoto" aria-pressed="true">Fotografia</button>
+        <button id="modeCodigo" aria-pressed="false">Código</button>
         <button id="modeTexto" aria-pressed="false">Descrever</button>
       </div>
       <div id="fotoBox">
-        <label class="drop" id="drop" for="photo">
-          <span class="cam"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>
-          <b>Tirar foto ou escolher da galeria</b>
-          <span class="small muted">O Claude identifica a comida e estima a porção</span>
-        </label>
+        <label class="drop" id="drop" for="photo"></label>
         <input type="file" id="photo" accept="image/*" hidden>
+      </div>
+      <div id="codeBox" hidden style="display:flex;flex-direction:column;gap:10px">
+        <div class="scanner" id="scanWrap">
+          <div id="reader"></div>
+          <div class="scanIdle" id="scanIdle">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3"/><path d="M7 8v8M10 8v8M12.5 8v8M15 8v8M17 8v8"/></svg>
+            <b>Ler código de barras</b>
+            <span class="small muted">Valores do rótulo, via Open Food Facts</span>
+            <button class="btn" id="camStart" style="width:auto;padding:11px 20px">Abrir câmara</button>
+          </div>
+        </div>
+        <button class="btn ghost" id="camStop" hidden>Fechar câmara</button>
+        <div class="row" style="align-items:stretch">
+          <input id="codeIn" inputmode="numeric" pattern="[0-9]*" placeholder="Ou escreve o código (ex.: 5601312…)" aria-label="Código de barras">
+          <button class="btn ghost" id="codeGo" style="flex:0 0 auto;width:auto">Procurar</button>
+        </div>
+        <div id="recentes"></div>
       </div>
       <label class="f" id="hintLbl">Detalhes opcionais (ajudam a precisão)
         <textarea id="hint" placeholder="Ex.: arroz de pato, prato raso, com azeite"></textarea>
@@ -193,7 +220,7 @@ nav.tabs .scanbtn span.o{width:56px;height:56px;border-radius:50%;background:var
       <label class="f">Refeição
         <select id="mealSel"><option>Pequeno-almoço</option><option>Almoço</option><option>Lanche</option><option>Jantar</option><option>Snack</option></select>
       </label>
-      <div class="row"><button class="btn" id="analyze" disabled>Analisar</button><button class="btn ghost" id="stopBtn" hidden>Parar</button></div>
+      <div class="row" id="analyzeRow"><button class="btn" id="analyze" disabled>Analisar</button><button class="btn ghost" id="stopBtn" hidden>Parar</button></div>
       <div class="status" id="status" hidden></div>
     </div>
     <div id="results" hidden class="card" style="display:flex;flex-direction:column;gap:12px"></div>
@@ -344,23 +371,35 @@ async function toJpeg(f){
   const bmp=await createImageBitmap(f).catch(()=>null);
   let src=bmp;
   if(!src){src=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f)})}
-  const w=src.width,h=src.height,s=Math.min(1,1280/Math.max(w,h));
+  const w=src.width,h=src.height,s=Math.min(1,896/Math.max(w,h));
   const c=document.createElement('canvas');c.width=Math.round(w*s);c.height=Math.round(h*s);
   c.getContext('2d').drawImage(src,0,0,c.width,c.height);
-  return c.toDataURL('image/jpeg',0.82).split(',')[1];
+  return c.toDataURL('image/jpeg',0.75).split(',')[1];
+}
+/* Nível de "pensamento" mais baixo que cada modelo aceita (fica memorizado) */
+function thinkFor(model){const k=LS.get('think:'+model);if(k!==null)return k;return /gemini-3\.8/.test(model)?'low':'minimal'}
+function reqBody(parts,level){
+  const gc={temperature:0.2,responseMimeType:'application/json'};
+  if(level)gc.thinkingConfig={thinkingLevel:level};
+  return JSON.stringify({contents:[{role:'user',parts}],generationConfig:gc});
 }
 async function gemini(prompt,img,signal){
   let models=LS.get('models');
   if(!Array.isArray(models)||!models.length){await pickModel(apiKey);models=LS.get('models')||['gemini-flash-latest']}
   const parts=[{text:prompt}];
   if(img)parts.push({inline_data:{mime_type:'image/jpeg',data:img}});
-  const body=JSON.stringify({contents:[{role:'user',parts}],generationConfig:{temperature:0.2,responseMimeType:'application/json'}});
   let r=null,lastErr=null;
   outer: for(const model of models){
+    let level=thinkFor(model);
     for(let attempt=0;attempt<2;attempt++){
       if(models.indexOf(model)>0||attempt>0)setStatus('<span class="spin"></span> O Gemini está ocupado, a tentar outra vez…');
-      r=await fetch(`${API}/models/${model}:generateContent`,{method:'POST',signal,headers:{'Content-Type':'application/json','x-goog-api-key':apiKey},body});
-      if(r.ok){LS.set('model',model);break outer}
+      r=await fetch(`${API}/models/${model}:generateContent`,{method:'POST',signal,headers:{'Content-Type':'application/json','x-goog-api-key':apiKey},body:reqBody(parts,level)});
+      if(r.ok){LS.set('model',model);LS.set('think:'+model,level);break outer}
+      if(r.status===400&&level){
+        // o modelo não aceita este nível de raciocínio: desce para "low" e depois para o padrão
+        const msg=await r.clone().text().catch(()=>'');
+        if(/thinking/i.test(msg)){level=level==='minimal'?'low':'';attempt--;continue}
+      }
       lastErr=await apiErr(r);
       if(lastErr.code==='key')throw lastErr;
       if([500,502,503,504].includes(r.status)&&attempt===0){await wait(2000,signal);continue}
@@ -519,32 +558,121 @@ $('#wAdd').onclick=async()=>{
 };
 
 /* ---------- scan com IA ---------- */
-let mode='foto', file=null, ctl=null, scanItems=[];
-function setMode(m){mode=m;$('#modeFoto').setAttribute('aria-pressed',m==='foto');$('#modeTexto').setAttribute('aria-pressed',m==='texto');$('#fotoBox').hidden=m!=='foto';
-  $('#hintLbl').firstChild.textContent=m==='foto'?'Detalhes opcionais (ajudam a precisão)':'O que comeste? Indica quantidades se souberes';updateAnalyze()}
-$('#modeFoto').onclick=()=>setMode('foto');$('#modeTexto').onclick=()=>setMode('texto');
-$('#photo').onchange=e=>{file=e.target.files[0]||null;if(file){const u=URL.createObjectURL(file);$('#drop').innerHTML=`<img src="${u}" alt="Fotografia da refeição"><span class="small muted">Toca para trocar</span>`}updateAnalyze()};
+let mode='foto', file=null, ctl=null, scanItems=[], jpegP=null;
+const DROP_EMPTY=`<span class="cam"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span><b>Tirar foto ou escolher da galeria</b><span class="small muted">O Gemini identifica a comida e estima a porção</span>`;
+$('#drop').innerHTML=DROP_EMPTY;
+function setMode(m){mode=m;
+  [['foto','#modeFoto'],['codigo','#modeCodigo'],['texto','#modeTexto']].forEach(([k,id])=>$(id).setAttribute('aria-pressed',m===k));
+  $('#fotoBox').hidden=m!=='foto';$('#codeBox').hidden=m!=='codigo';
+  $('#hintLbl').hidden=m==='codigo';$('#analyzeRow').hidden=m==='codigo';
+  if(m!=='codigo')stopCam();else renderRecentes();
+  $('#hintLbl').firstChild.textContent=m==='foto'?'Detalhes opcionais (ajudam a precisão)':'O que comeste? Indica quantidades se souberes';
+  setStatus('');updateAnalyze()}
+$('#modeFoto').onclick=()=>setMode('foto');$('#modeTexto').onclick=()=>setMode('texto');$('#modeCodigo').onclick=()=>setMode('codigo');
+$('#photo').onchange=e=>{file=e.target.files[0]||null;jpegP=null;
+  if(file){const u=URL.createObjectURL(file);$('#drop').innerHTML=`<img src="${u}" alt="Fotografia da refeição"><span class="small muted">Toca para trocar</span>`;
+    jpegP=toJpeg(file);jpegP.catch(()=>{})} // prepara a imagem enquanto escreves os detalhes
+  updateAnalyze()};
 $('#hint').oninput=updateAnalyze;
 function updateAnalyze(){$('#analyze').disabled=!apiKey||(mode==='foto'?!file:!$('#hint').value.trim());
+  if(mode==='codigo')return;
   if(!apiKey)setStatus('Para analisar, guarda primeiro a tua chave do Gemini no separador Perfil.');else if($('#status').textContent.startsWith('Para analisar'))setStatus('')}
+
+/* ---------- código de barras ---------- */
+let qr=null, camOn=false, busyCode=false;
+function loadQrLib(){
+  if(window.Html5Qrcode)return Promise.resolve();
+  return new Promise((res,rej)=>{const s=document.createElement('script');s.src='html5-qrcode.min.js';s.onload=res;s.onerror=()=>rej(new Error('lib'));document.head.appendChild(s)});
+}
+$('#camStart').onclick=async()=>{
+  setStatus('<span class="spin"></span> A abrir a câmara…');
+  try{
+    await loadQrLib();
+    const F=Html5QrcodeSupportedFormats;
+    qr=qr||new Html5Qrcode('reader',{verbose:false,formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128],experimentalFeatures:{useBarCodeDetectorIfSupported:true}});
+    $('#scanIdle').hidden=true;
+    await qr.start({facingMode:'environment'},{fps:12,qrbox:(w,h)=>({width:Math.floor(w*0.85),height:Math.floor(Math.min(h*0.5,w*0.45))}),aspectRatio:1.333},
+      code=>{if(busyCode)return;busyCode=true;stopCam().then(()=>lookup(code))},()=>{});
+    camOn=true;$('#scanWrap').classList.add('live');$('#camStop').hidden=false;setStatus('Aponta para o código de barras. Lê sozinho.');
+  }catch(e){
+    $('#scanIdle').hidden=false;camOn=false;
+    const n=e?.name||String(e);
+    setStatus(/NotAllowed|Permission/i.test(n)?'Sem acesso à câmara. Ativa em Definições → Safari → Câmara, ou escreve o código à mão.':
+      /lib/.test(e?.message||'')?'Não consegui carregar o leitor. Confirma que o ficheiro html5-qrcode.min.js está no GitHub.':'Não consegui abrir a câmara. Podes escrever o código à mão.');
+  }
+};
+async function stopCam(){
+  if(qr&&camOn){try{await qr.stop()}catch(e){}try{qr.clear()}catch(e){}}
+  camOn=false;$('#scanIdle').hidden=false;$('#scanWrap').classList.remove('live');$('#camStop').hidden=true;
+}
+$('#camStop').onclick=()=>{stopCam();setStatus('')};
+$('#codeGo').onclick=()=>{const c=$('#codeIn').value.replace(/\D/g,'');if(c.length<8){setStatus('O código tem de ter pelo menos 8 dígitos.');return}lookup(c)};
+$('#codeIn').addEventListener('keydown',e=>{if(e.key==='Enter')$('#codeGo').click()});
+const num=v=>{const n=parseFloat(v);return isFinite(n)?n:0};
+async function lookup(code){
+  busyCode=true;$('#results').hidden=true;$('#codeIn').value=code;
+  setStatus('<span class="spin"></span> A procurar o produto '+esc(code)+'…');
+  try{
+    let p=LS.get('off:'+code);
+    if(!p){
+      const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name_pt,product_name,generic_name_pt,brands,quantity,serving_quantity,serving_size,nutriments,nutriscore_grade,image_front_small_url`);
+      if(r.status===404){notFound(code);return}
+      if(!r.ok)throw new Error('http');
+      const j=await r.json();
+      if(j.status===0||!j.product){notFound(code);return}
+      const d=j.product,n=d.nutriments||{};
+      let kcal=num(n['energy-kcal_100g']);if(!kcal&&n.energy_100g)kcal=num(n.energy_100g)/4.184;
+      if(!kcal&&!num(n.proteins_100g)&&!num(n.carbohydrates_100g)){notFound(code,d.product_name_pt||d.product_name);return}
+      p={code,nome:(d.product_name_pt||d.product_name||d.generic_name_pt||'Produto '+code).trim(),marca:(d.brands||'').split(',')[0].trim(),qtd:d.quantity||'',
+        serv:num(d.serving_quantity)||0,servTxt:d.serving_size||'',ns:(d.nutriscore_grade||'').toLowerCase(),img:d.image_front_small_url||'',
+        kcal:Math.round(kcal),p:num(n.proteins_100g),c:num(n.carbohydrates_100g),f:num(n.fat_100g),fib:num(n.fiber_100g),sug:num(n.sugars_100g),
+        na:n.sodium_100g!=null?Math.round(num(n.sodium_100g)*1000):Math.round(num(n.salt_100g)*400)};
+      LS.set('off:'+code,p);
+    }
+    addRecente(p);setStatus('');renderProduct(p);
+  }catch(e){
+    setStatus(e instanceof TypeError?'Sem ligação à internet. Tenta outra vez quando tiveres rede.':'O Open Food Facts não respondeu. Tenta outra vez daqui a pouco.');
+  }finally{busyCode=false}
+}
+function notFound(code,name){
+  setStatus('');const box=$('#results');box.hidden=false;
+  box.innerHTML=`<h2 style="margin:0">Produto sem dados</h2><p class="muted" style="margin:0">${name?esc(name)+' existe no Open Food Facts, mas sem tabela nutricional.':'O código '+esc(code)+' ainda não está no Open Food Facts.'} Tira uma foto à tabela nutricional da embalagem e o Gemini lê os valores.</p>
+  <button class="btn" id="toLabel">Fotografar o rótulo</button>`;
+  $('#toLabel').onclick=()=>{setMode('foto');$('#hint').value='Tabela nutricional de '+(name||'um produto embalado')+'. Indica os valores para uma porção típica.';box.hidden=true;$('#photo').click()};
+}
+const NS={a:'#038141',b:'#85BB2F',c:'#E6A100',d:'#E67E22',e:'#E63E11'};
+function renderProduct(p){
+  const g=p.serv>0&&p.serv<2000?p.serv:100;
+  renderResults({refeicao:p.nome,confianca:'rotulo',notas:`Valores por 100 g do rótulo, via Open Food Facts${p.servTxt?'. Porção da embalagem: '+p.servTxt:''}. Ajusta as gramas ao que comeste.`,
+    itens:[{nome:p.nome+(p.marca?' ('+p.marca+')':''),porcao_g:100,kcal:p.kcal,proteina_g:p.p,hidratos_g:p.c,gordura_g:p.f,fibra_g:p.fib,acucar_g:p.sug,sodio_mg:p.na,
+      propriedades:(p.qtd?'Embalagem '+p.qtd:'')}]});
+  scanItems[0].g=g;drawItems();
+  const head=$('#results h2');
+  if(head)head.parentElement.insertAdjacentHTML('beforebegin',`<div class="prod">${p.img?`<img src="${esc(p.img)}" alt="">`:''}<div style="min-width:0"><div class="eyebrow">${esc(p.marca||'Produto')}</div>${p.ns&&NS[p.ns]?`<div class="small muted">Nutri-Score<span class="ns" style="background:${NS[p.ns]}">${p.ns.toUpperCase()}</span></div>`:''}</div></div>`);
+}
+function addRecente(p){let r=LS.get('recentes')||[];r=[p.code,...r.filter(c=>c!==p.code)].slice(0,8);LS.set('recentes',r)}
+function renderRecentes(){
+  const r=(LS.get('recentes')||[]).map(c=>LS.get('off:'+c)).filter(Boolean);
+  $('#recentes').innerHTML=r.length?`<div class="eyebrow" style="margin-bottom:6px">Recentes</div><div class="rec">${r.map(p=>`<button data-code="${esc(p.code)}">${esc(p.nome)}</button>`).join('')}</div>`:'';
+}
+$('#recentes').addEventListener('click',e=>{const c=e.target.closest('[data-code]')?.dataset.code;if(c)lookup(c)});
 function guessMeal(){const h=new Date().getHours();return h<11?'Pequeno-almoço':h<15?'Almoço':h<19?'Lanche':'Jantar'}
 $('#mealSel').value=guessMeal();
 function setStatus(html){const s=$('#status');s.hidden=!html;s.innerHTML=html||''}
 $('#stopBtn').onclick=()=>ctl?.abort();
 $('#analyze').onclick=async()=>{
   if(!apiKey)return;
-  const prompt=`És um nutricionista. ${mode==='foto'?'Analisa a fotografia desta refeição: identifica cada alimento visível e estima o peso da porção em gramas a partir de pistas visuais (tamanho do prato, talheres, mãos).':'Analisa esta descrição de uma refeição e identifica cada alimento.'}
-${$('#hint').value.trim()?'Informação do utilizador: '+$('#hint').value.trim():''}
-Usa valores nutricionais típicos (tabelas como INSA/USDA), em português de Portugal. Conta óleos e molhos visíveis.
-Responde só com JSON neste formato:
-{"refeicao":"nome curto do prato","itens":[{"nome":"Arroz branco cozido","porcao_g":150,"kcal":195,"proteina_g":4,"hidratos_g":42,"gordura_g":0.5,"fibra_g":0.6,"acucar_g":0.1,"sodio_mg":5,"propriedades":"Fonte de hidratos de absorção rápida; pouca fibra"}],"confianca":"alta|media|baixa","notas":"uma frase sobre a estimativa e o que a afinaria"}
-Se não houver comida, devolve "itens":[] e explica em "notas".`;
+  const prompt=`Nutricionista. ${mode==='foto'?'Identifica cada alimento na foto e estima a porção em gramas (usa prato, talheres e mãos como escala). Se a foto for uma tabela nutricional ou embalagem, usa os valores do rótulo.':'Identifica cada alimento desta descrição.'}
+${$('#hint').value.trim()?'Utilizador: '+$('#hint').value.trim():''}
+Valores típicos (INSA/USDA), conta óleos e molhos. Português de Portugal. Só JSON, sem texto extra:
+{"refeicao":"nome curto","itens":[{"nome":"Arroz branco cozido","porcao_g":150,"kcal":195,"proteina_g":4,"hidratos_g":42,"gordura_g":0.5,"fibra_g":0.6,"acucar_g":0.1,"sodio_mg":5,"propriedades":"máx. 10 palavras"}],"confianca":"alta|media|baixa","notas":"máx. 20 palavras"}
+Sem comida: "itens":[] e explica em "notas".`;
   ctl=new AbortController();
   $('#analyze').disabled=true;$('#stopBtn').hidden=false;$('#results').hidden=true;
   setStatus('<span class="spin"></span> A analisar a refeição…');
   try{
     let img=null;
-    if(mode==='foto'&&file){try{img=await toJpeg(file)}catch(e){throw {message:'Não consegui ler a imagem. Experimenta outra foto.'}}}
+    if(mode==='foto'&&file){try{img=await (jpegP||(jpegP=toJpeg(file)))}catch(e){jpegP=null;throw {message:'Não consegui ler a imagem. Experimenta outra foto.'}}}
     const r=await gemini(prompt,img,ctl.signal);
     setStatus('');renderResults(r);
   }catch(e){
@@ -559,7 +687,7 @@ function renderResults(r){
   scanItems=its.map(i=>({nome:String(i.nome||'Alimento'),g0:+i.porcao_g||100,g:+i.porcao_g||100,kcal:+i.kcal||0,p:+i.proteina_g||0,c:+i.hidratos_g||0,f:+i.gordura_g||0,fib:+i.fibra_g||0,sug:+i.acucar_g||0,na:+i.sodio_mg||0,props:String(i.propriedades||''),on:true}));
   const box=$('#results');box.hidden=false;
   if(!scanItems.length){box.innerHTML=`<h2>Nada identificado</h2><p class="muted" style="margin:0">${esc(r?.notas||'Não encontrei comida na imagem.')}</p>`;return}
-  const conf={alta:['Confiança alta','ok'],media:['Confiança média','warn'],baixa:['Confiança baixa','warn']}[String(r.confianca||'').replace('é','e')]||['Estimativa','ok'];
+  const conf={rotulo:['Valores do rótulo','ok'],alta:['Confiança alta','ok'],media:['Confiança média','warn'],baixa:['Confiança baixa','warn']}[String(r.confianca||'').replace('é','e')]||['Estimativa','ok'];
   box.innerHTML=`<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap"><h2 style="margin:0">${esc(r.refeicao||'Refeição')}</h2><span class="pill ${conf[1]}">${conf[0]}</span></div>
   <div id="itemList" style="display:flex;flex-direction:column;gap:10px"></div>
   <div class="statrow" style="border:0"><span class="muted">Total selecionado</span><b class="num" id="selTotal"></b></div>
@@ -570,8 +698,8 @@ function renderResults(r){
     const sel=scanItems.filter(i=>i.on).map(scaled).map(i=>({meal:$('#mealSel').value,nome:i.nome,g:i.g,kcal:i.kcal,p:i.p,c:i.c,f:i.f,fib:i.fib,sug:i.sug,na:i.na,props:i.props}));
     if(!sel.length){toast('Escolhe pelo menos um alimento');return}
     await addEntries(sel);toast(`${fmt(sel.reduce((a,b)=>a+b.kcal,0))} kcal adicionadas`);
-    box.hidden=true;file=null;$('#photo').value='';$('#hint').value='';
-    $('#drop').innerHTML=`<span class="cam"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span><b>Tirar foto ou escolher da galeria</b><span class="small muted">O Claude identifica a comida e estima a porção</span>`;
+    box.hidden=true;file=null;jpegP=null;$('#photo').value='';$('#hint').value='';$('#codeIn').value='';
+    $('#drop').innerHTML=DROP_EMPTY;
     updateAnalyze();show('hoje');
   };
 }
@@ -598,6 +726,7 @@ $('#mSave').onclick=async()=>{
 
 /* ---------- navegação ---------- */
 function show(v){
+  if(v!=='scan')stopCam();
   if(v==='add'){$('#mMeal').value=guessMeal();$('#v-add').hidden=false;return}
   ['hoje','scan','peso','perfil'].forEach(x=>{const el=$('#v-'+x);el.hidden=x!==v;if(x===v)el.style.display='flex'});
   document.querySelectorAll('nav.tabs button').forEach(b=>b.setAttribute('aria-current',b.dataset.v===v?'page':'false'));
