@@ -293,6 +293,12 @@ nav.tabs .scanbtn span.o{width:56px;height:56px;border-radius:50%;background:var
       </label>
       <div class="row"><button class="btn" id="saveKey">Guardar e testar</button><button class="btn ghost" id="clearKey">Apagar</button></div>
       <div class="small muted" id="keyStatus"></div>
+      <label class="f" style="margin-top:4px">Modo de análise</label>
+      <div class="seg" role="group" aria-label="Modo de análise">
+        <button id="spRapido" aria-pressed="true">Rápido</button>
+        <button id="spPreciso" aria-pressed="false">Preciso</button>
+      </div>
+      <p class="small muted" style="margin:0" id="spNote"></p>
     </div>
     <div class="card" style="display:flex;flex-direction:column;gap:10px">
       <h2>Cópia de segurança</h2>
@@ -301,6 +307,7 @@ nav.tabs .scanbtn span.o{width:56px;height:56px;border-radius:50%;background:var
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div>
     <p class="small muted" style="margin:0 4px">As estimativas por foto são aproximadas (em geral ±15 a 25%). Isto não substitui aconselhamento de um nutricionista ou médico.</p>
+    <p class="small muted" style="margin:0 4px">Versão 4 · 25 out 2026</p>
   </section>
 </div>
 
@@ -354,10 +361,19 @@ async function pickModel(key){
   const sorter=(a,b)=>ver(b)-ver(a)||a.length-b.length;
   const flash=all.filter(n=>/^gemini-[\d.]+-flash/.test(n)&&!/lite/.test(n)&&!bad.test(n)).sort(sorter).slice(0,3);
   const lite=all.filter(n=>/^gemini-[\d.]+-flash-lite/.test(n)&&!bad.test(n)).sort(sorter).slice(0,2);
-  const latest=['gemini-flash-latest','gemini-flash-lite-latest'].filter(n=>all.includes(n));
-  const list=[...new Set([...flash,...latest,...lite])];
-  LS.set('models',list.length?list:['gemini-flash-latest']);
-  return (list[0]||'gemini-flash-latest');
+  if(all.includes('gemini-flash-latest'))flash.push('gemini-flash-latest');
+  if(all.includes('gemini-flash-lite-latest'))lite.push('gemini-flash-lite-latest');
+  LS.set('mFlash',flash.length?flash:['gemini-flash-latest']);
+  LS.set('mLite',lite.length?lite:['gemini-flash-lite-latest']);
+  LS.set('models',modelOrder());
+  return modelOrder()[0];
+}
+/* Modo rápido: Flash-Lite primeiro. Modo preciso: Flash primeiro. O outro fica de reserva. */
+function speedMode(){return LS.get('speed')||'rapido'}
+function modelOrder(){
+  const f=LS.get('mFlash')||[],l=LS.get('mLite')||[];
+  const list=speedMode()==='preciso'?[...f.slice(0,2),...l.slice(0,1)]:[...l.slice(0,2),...f.slice(0,1)];
+  return [...new Set(list)].filter(Boolean);
 }
 const wait=(ms,signal)=>new Promise((res,rej)=>{const t=setTimeout(res,ms);signal?.addEventListener('abort',()=>{clearTimeout(t);rej(new DOMException('','AbortError'))},{once:true})});
 async function apiErr(r){let m='';try{m=(await r.json()).error?.message||''}catch(e){}
@@ -384,8 +400,8 @@ function reqBody(parts,level){
   return JSON.stringify({contents:[{role:'user',parts}],generationConfig:gc});
 }
 async function gemini(prompt,img,signal){
-  let models=LS.get('models');
-  if(!Array.isArray(models)||!models.length){await pickModel(apiKey);models=LS.get('models')||['gemini-flash-latest']}
+  let models=modelOrder();
+  if(!models.length){await pickModel(apiKey);models=modelOrder();if(!models.length)models=['gemini-flash-lite-latest','gemini-flash-latest']}
   const parts=[{text:prompt}];
   if(img)parts.push({inline_data:{mime_type:'image/jpeg',data:img}});
   let r=null,lastErr=null;
@@ -408,7 +424,7 @@ async function gemini(prompt,img,signal){
     r=null;
   }
   if(!r){
-    if(lastErr?.code==='model')LS.set('models',null);
+    if(lastErr?.code==='model'){LS.set('mFlash',null);LS.set('mLite',null)}
     if(lastErr?.code==='limit')throw lastErr;
     throw {message:'Os servidores do Gemini estão sobrecarregados neste momento. Tenta outra vez daqui a um ou dois minutos.'};
   }
@@ -669,18 +685,23 @@ Valores típicos (INSA/USDA), conta óleos e molhos. Português de Portugal. Só
 Sem comida: "itens":[] e explica em "notas".`;
   ctl=new AbortController();
   $('#analyze').disabled=true;$('#stopBtn').hidden=false;$('#results').hidden=true;
+  const t0=performance.now();
   setStatus('<span class="spin"></span> A analisar a refeição…');
+  const tick=setInterval(()=>{const s=$('#status');if(s.querySelector('.spin')&&/analisar|calcular/.test(s.textContent))s.innerHTML='<span class="spin"></span> A analisar a refeição… '+Math.round((performance.now()-t0)/1000)+' s'},1000);
   try{
     let img=null;
     if(mode==='foto'&&file){try{img=await (jpegP||(jpegP=toJpeg(file)))}catch(e){jpegP=null;throw {message:'Não consegui ler a imagem. Experimenta outra foto.'}}}
     const r=await gemini(prompt,img,ctl.signal);
+    clearInterval(tick);
     setStatus('');renderResults(r);
+    const secs=((performance.now()-t0)/1000).toFixed(1).replace('.',',');
+    $('#results').insertAdjacentHTML('beforeend',`<p class="small muted" style="margin:0">Analisado em ${secs} s · ${esc(LS.get('model')||'')}</p>`);
   }catch(e){
     if(e&&e.name==='AbortError')setStatus('');
     else if(e instanceof SyntaxError)setStatus('A resposta veio incompleta. Tenta analisar outra vez.');
     else if(e instanceof TypeError)setStatus('Sem ligação à internet. Tenta outra vez quando tiveres rede.');
     else setStatus(esc(e?.message||'Não foi possível analisar agora. Tenta outra vez.'));
-  }finally{$('#stopBtn').hidden=true;updateAnalyze()}
+  }finally{clearInterval(tick);$('#stopBtn').hidden=true;updateAnalyze()}
 };
 function renderResults(r){
   const its=Array.isArray(r?.itens)?r.itens:[];
@@ -756,7 +777,12 @@ $('#saveKey').onclick=async()=>{
   catch(e){$('#keyStatus').textContent=e instanceof TypeError?'Sem ligação à internet.':(e.message||'Não foi possível validar a chave.')}
   finally{$('#saveKey').disabled=false}
 };
-$('#clearKey').onclick=()=>{apiKey='';LS.set('apiKey','');LS.set('model',null);LS.set('models',null);$('#apiKey').value='';$('#keyStatus').textContent='Chave apagada deste iPhone.';updateAnalyze()};
+function renderSpeed(){const m=speedMode();$('#spRapido').setAttribute('aria-pressed',m==='rapido');$('#spPreciso').setAttribute('aria-pressed',m==='preciso');
+  $('#spNote').textContent=m==='rapido'?'Usa o Gemini Flash-Lite: responde em poucos segundos, com estimativas um pouco menos finas.':'Usa o Gemini Flash: mais preciso em pratos complexos, mas demora mais.'}
+$('#spRapido').onclick=()=>{LS.set('speed','rapido');renderSpeed()};
+$('#spPreciso').onclick=()=>{LS.set('speed','preciso');renderSpeed()};
+renderSpeed();
+$('#clearKey').onclick=()=>{apiKey='';LS.set('apiKey','');LS.set('model',null);LS.set('mFlash',null);LS.set('mLite',null);$('#apiKey').value='';$('#keyStatus').textContent='Chave apagada deste iPhone.';updateAnalyze()};
 $('#exportBtn').onclick=async()=>{
   const data={app:'prato',v:1,exportado:new Date().toISOString(),dados:{}};
   for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.startsWith('prato:')&&!/apiKey|model/.test(k))data.dados[k.slice(6)]=LS.get(k.slice(6))}
